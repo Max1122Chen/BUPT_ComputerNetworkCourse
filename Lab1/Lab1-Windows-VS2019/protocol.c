@@ -96,6 +96,8 @@ static void magic_check(void);
 
 static unsigned int head_magic[NMAGIC];
 
+int datalink_protocol = DATALINK_PROTO_SR;
+
 /* Parameters */
 static int station;
 static double ber = DEFAULT_CHAN_BER;  /* Bit Error Rate */
@@ -128,10 +130,53 @@ static struct option intopts[] = {
 	{ "ber",	required_argument, NULL, 'b' },
 	{ "log",	required_argument, NULL, 'l' },
 	{ "ttl",    required_argument, NULL, 't' },
+	{ "proto",	required_argument, NULL, 'P' },
 	{ 0, 0, 0, 0 },
 };
 
-#define OPT_SHORT "?ufind:p:b:l:t:"
+#define OPT_SHORT "?ufind:p:b:l:t:P:"
+
+static const char *datalink_protocol_label(void)
+{
+	switch (datalink_protocol) {
+	case DATALINK_PROTO_STOP_WAIT:
+		return "stop-wait";
+	case DATALINK_PROTO_GBN_BASIC:
+		return "gbn-basic";
+	case DATALINK_PROTO_GBN_ACK:
+		return "gbn-ack";
+	case DATALINK_PROTO_SR:
+	default:
+		return "selective-repeat";
+	}
+}
+
+static void set_datalink_protocol(const char *s)
+{
+	if (!s || !*s) {
+		printf("Bad --proto: empty value\n");
+		exit(0);
+	}
+	if (stricmp(s, "sr") == 0 || stricmp(s, "selective") == 0 || stricmp(s, "selective-repeat") == 0) {
+		datalink_protocol = DATALINK_PROTO_SR;
+		return;
+	}
+	if (stricmp(s, "gbn-basic") == 0 || stricmp(s, "gbn") == 0 || stricmp(s, "basic") == 0) {
+		datalink_protocol = DATALINK_PROTO_GBN_BASIC;
+		return;
+	}
+	if (stricmp(s, "gbn-ack") == 0 || stricmp(s, "ack") == 0 || stricmp(s, "piggy") == 0
+	    || stricmp(s, "piggyback") == 0) {
+		datalink_protocol = DATALINK_PROTO_GBN_ACK;
+		return;
+	}
+	if (stricmp(s, "stop-wait") == 0 || stricmp(s, "sw") == 0 || stricmp(s, "stop") == 0) {
+		datalink_protocol = DATALINK_PROTO_STOP_WAIT;
+		return;
+	}
+	printf("Bad --proto value \"%s\". Use: sw, gbn-basic, gbn-ack, sr\n", s);
+	exit(0);
+}
 
 static void config(int argc, char **argv)
 {
@@ -153,12 +198,14 @@ static void config(int argc, char **argv)
 			"    -b, --ber=<ber> : Bit Error Rate (received data only)\n"
 			"    -l, --log=<filename> : using assigned file as log file\n"
 			"    -t, --ttl=<seconds> : set time-to-live\n"
+			"    -P, --proto=<name> : datalink protocol: sw | gbn-basic | gbn-ack | sr (default: sr)\n"
 			"\n"
 			"i.e.\n"
 			"    %s -fd3 -b 1e-4 A\n"
 			"    %s --flood --debug=3 --ber=1e-4 A\n"
+			"    %s -P gbn-ack -fd3 A\n"
 			"\n",
-			DEFAULT_PORT, argv[0], argv[0]);
+			DEFAULT_PORT, argv[0], argv[0], argv[0]);
 		exit(0);
 	}
 
@@ -209,6 +256,10 @@ static void config(int argc, char **argv)
 			mode_life = atoi(optarg) * 1000; /* ms */
 			break;
 
+		case 'P':
+			set_datalink_protocol(optarg);
+			break;
+
 		default:
 			printf("ERROR: Unsupported option\n");
 			goto usage;
@@ -247,6 +298,7 @@ static void config(int argc, char **argv)
 	else
 		lprintf("0\n");
 	lprintf("Log file \"%s\", TCP port %d, debug mask 0x%02x\n", fname, port, debug_mask);
+	lprintf("Datalink protocol: %s\n", datalink_protocol_label());
 }
 
 /* Create Communication Sockets  */
@@ -315,7 +367,7 @@ void protocol_init(int argc, char **argv)
                 break;
             }
         }
-        if (i == 6)
+        if (i == 60)
             ABORT("Station B failed to connect station A");
 
         time(&epoch);
@@ -686,7 +738,7 @@ void dbg_event(char *fmt, ...)
 {
 	va_list arg_ptr;
 
-	if (debug_mask & DBG_FRAME) {
+	if (debug_mask & DBG_EVENT) {
 		va_start(arg_ptr, fmt);
 		__v_lprintf(fmt, arg_ptr);
 		va_end(arg_ptr);

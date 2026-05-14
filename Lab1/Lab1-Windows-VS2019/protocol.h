@@ -15,6 +15,14 @@ extern "C" {
 
 #include "lprintf.h"
 
+/* Data link protocol (set via -P/--proto before entering the datalink layer). */
+#define DATALINK_PROTO_STOP_WAIT 0
+#define DATALINK_PROTO_GBN_BASIC 1
+#define DATALINK_PROTO_GBN_ACK   2
+#define DATALINK_PROTO_SR        3
+
+extern int datalink_protocol;
+
 /* Initalization */ 
 extern void protocol_init(int argc, char **argv);
 

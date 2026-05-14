@@ -5,8 +5,16 @@ project(datalink C)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-file(GLOB_RECURSE DATAlink_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
+set(DATAlink_SOURCES
+    crc32.c
+    datalink.c
+    getopt.c
+    lprintf.c
+    protocol.c
+    protocols/go_back_n.c
+    protocols/go_back_n_piggypacking.c
+    protocols/selective_repeat.c
+    protocols/stop_and_wait.c
 )
 
 add_executable(datalink
