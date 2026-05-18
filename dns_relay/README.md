@@ -6,6 +6,7 @@
 |------|------|
 | **[docs/design.md](docs/design.md)** | 产品需求（PRD v2.0）— 做什么、怎么验收 |
 | **[docs/design-technical.md](docs/design-technical.md)** | 技术设计（TDD v2.0）— 协议、API、数据结构 |
+| **[docs/testing-release1.md](docs/testing-release1.md)** | **Release 1 测试流程（队友必读）** |
 | **[docs/contributing.md](docs/contributing.md)** | **新成员上手与组内协作流程** |
 | **[docs/git-convention.md](docs/git-convention.md)** | **Git 提交规范（Conventional Commits）** |
 | **[AGENTS.md](AGENTS.md)** | Cursor AI 协作入口 |
@@ -64,7 +65,28 @@ cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-可执行文件通常在 `build/dnsrelay.exe`（以 CMake 配置为准）。
+| 产物 | 路径 |
+|------|------|
+| 中继程序 | `build/dnsrelay.exe` |
+| 单元测试 | `build/dnsrelay_test.exe` |
+
+### 自动化测试（无需管理员 / 不占 53 端口）
+
+```powershell
+.\build\dnsrelay_test.exe
+# 或
+ctest --test-dir build
+```
+
+### 运行与验收（Release 1）
+
+完整步骤（单元测试 + 管理员中继 + 对比上游）：**[docs/testing-release1.md](docs/testing-release1.md)**。
+
+```powershell
+# 管理员 PowerShell
+.\build\dnsrelay.exe -d 220.181.111.1
+nslookup www.baidu.com 127.0.0.1
+```
 
 ### 运行注意
 
