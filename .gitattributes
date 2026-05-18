@@ -1,0 +1,8 @@
+# Text normalization and UTF-8 for docs (Chinese commit messages / markdown)
+* text=auto eol=lf
+*.md text eol=lf encoding=utf-8
+*.txt text eol=lf encoding=utf-8
+*.c text eol=lf
+*.h text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf

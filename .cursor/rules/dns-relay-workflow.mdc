@@ -1,0 +1,48 @@
+---
+description: DNS Relay 课程设计 — AI 协作与编码基本规矩
+globs: dns_relay/**
+alwaysApply: false
+---
+
+# DNS Relay 协作规矩
+
+在 `dns_relay/` 下工作时，先读 `dns_relay/AGENTS.md`。
+
+## 需求来源
+
+- 产品需求以 `dns_relay/docs/design.md`（PRD v2.0）为准；实现细节见 `design-technical.md` 与 `decisions.md`（ADR-000～009）。
+- 当前默认 **Release 1**（仅转发，不读 `dnsrelay.txt`）；勿提前实现 Release 2/3 功能。
+- 需求文档：`.cursor/skills/product-manager/`；技术设计：`.cursor/skills/network-engineer/`。
+- 实现须符合 `design-technical.md`（TDD v2.0）中的模块 API，勿擅自改协议行为。
+- 新架构取舍须用户确认后更新 ADR，不得与已定 ADR 冲突。
+
+## 交付方式
+
+- **小步**：一会话一个可验证子目标；结束时报变更摘要、验证步骤、下一项建议。
+- **模块化**：逻辑放在 `src/` / `include/`，避免单文件堆完全部功能。
+- **语言**：C11（非 C++）；**Win64 + CMake + MinGW**，不用 Visual Studio 工程。
+- **依赖**：仅标准库与 OS API（Winsock2）；**禁止第三方库**；哈希表等须自实现（ADR-001）。
+- **风格**：遵循 `dns_relay/docs/coding-style.md`（`module_verb` 命名；**comments English only**）。
+- **协作**：新成员流程见 `dns_relay/docs/contributing.md`；提交见 `dns_relay/docs/git-convention.md`（Conventional Commits；长说明 EN+中文 body；UTF-8）。
+- 平台相关代码集中在 platform 模块，避免 `#ifdef` 散落业务代码。
+
+## 代码质量（课程设计通用）
+
+- 禁止 **忙等** 轮询等待网络事件；应使用 OS 提供的多路复用或等价机制。
+- 调试输出通过统一封装（宏或函数），`-d` 等级由配置控制，避免刷屏影响阅读。
+- 命名与注释服务于 **答辩可读性**；避免误导性命名。
+
+## Git
+
+- **不要**自动 `commit` / `push`，除非用户明确要求。
+- 若用户要求提交：subject **英文** `type(scope): subject`；长 body **先 EN 后中文**；提醒 UTF-8（见 git-convention.md §3）。
+- 回合结束可给出 **建议 commit message**，由用户本地执行。
+
+## 范围
+
+- 仅修改 `dns_relay/` 及本规则文件；不改动 `Lab1/` 等无关目录。
+- 不主动创建课程未要求的 markdown（如额外 README），除非用户要求。
+
+## 测试
+
+- 新增行为时，提议在 `docs/test-plan.md` 增加或更新对应用例行；不替用户勾选「已通过」。

@@ -1,0 +1,95 @@
+# DNS Relay（计算机网络课程设计）
+
+本目录为 **DNS 中继服务器** 课程设计工程。
+
+| 文档 | 用途 |
+|------|------|
+| **[docs/design.md](docs/design.md)** | 产品需求（PRD v2.0）— 做什么、怎么验收 |
+| **[docs/design-technical.md](docs/design-technical.md)** | 技术设计（TDD v2.0）— 协议、API、数据结构 |
+| **[docs/contributing.md](docs/contributing.md)** | **新成员上手与组内协作流程** |
+| **[docs/git-convention.md](docs/git-convention.md)** | **Git 提交规范（Conventional Commits）** |
+| **[AGENTS.md](AGENTS.md)** | Cursor AI 协作入口 |
+
+**当前路线**：Release 1（仅转发）→ Release 2（课设验收）→ Release 3（LRU 缓存）。
+
+---
+
+## 新成员首次上手（Checklist）
+
+按顺序完成即可开始写代码：
+
+1. [ ] 阅读 [docs/contributing.md](docs/contributing.md) 的 **10 分钟上手路径**
+2. [ ] 浏览 [docs/design.md](docs/design.md) 的 **一句话摘要** 与 **发布计划**（弄清 R1/R2/R3）
+3. [ ] 阅读 [docs/design-technical.md](docs/design-technical.md) §2 架构、§5 你负责模块的 API
+4. [ ] 遵守 [docs/coding-style.md](docs/coding-style.md)（**代码注释仅英文**）
+5. [ ] 配置 Git UTF-8：[docs/git-convention.md §3](docs/git-convention.md)（Windows 必做）
+6. [ ] 安装 CMake + MinGW，完成下方 **构建** 一次
+7. [ ] 与队友确认分工模块，避免同时改同一 `include/*.h`
+8. [ ] 用 AI 时：`@AGENTS.md` + [ai-session-template.md](docs/ai-session-template.md)
+
+---
+
+## 文档索引
+
+| 文件 | 用途 |
+|------|------|
+| [docs/decisions.md](docs/decisions.md) | 架构决策 ADR |
+| [docs/test-plan.md](docs/test-plan.md) | 测试与验收勾选 |
+| [docs/ai-session-template.md](docs/ai-session-template.md) | 新开 AI 对话模板 |
+| [docs/guidance/](docs/guidance/) | 课程 PDF、`dnsrelay-example.txt` |
+| [samples/](samples/) | `dnsrelay-minimal.txt` |
+
+目录结构见 [AGENTS.md](AGENTS.md#目录约定)。
+
+---
+
+## 开发环境
+
+| 项 | 选择 |
+|----|------|
+| 平台 | Windows **x64** |
+| 编译器 | MinGW-w64 **GCC** |
+| 构建 | **CMake** ≥ 3.16（不使用 Visual Studio） |
+| 语言 | **C11**，仅标准库 + Winsock2，无第三方库 |
+
+### 前置条件
+
+- [CMake](https://cmake.org/download/) 与 MinGW-w64 的 `gcc` 在 `PATH` 中（如 MSYS2 UCRT64）
+
+### 构建
+
+```powershell
+cd dns_relay
+cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+可执行文件通常在 `build/dnsrelay.exe`（以 CMake 配置为准）。
+
+### 运行注意
+
+- 监听 **UDP 53** 需 **管理员** 终端。
+- 测试时将本机 DNS 设为 `127.0.0.1`；上游 DNS 用命令行传入（见 PRD FR-09）。
+
+---
+
+## 协作与 Git（摘要）
+
+| 主题 | 文档 |
+|------|------|
+| 分工、日常流程、AI 用法 | [contributing.md](docs/contributing.md) |
+| `feat(scope): subject`、长说明中英双语、UTF-8 | [git-convention.md](docs/git-convention.md) |
+
+**提交示例（短）**：`feat(relay): forward client query with new upstream id`
+
+**AI**：默认不代 `commit`/`push`；结束一轮时请 AI 给出英文 subject 建议，由成员本地提交。
+
+---
+
+## 与 AI 协作（简版）
+
+1. 复制 [docs/ai-session-template.md](docs/ai-session-template.md)，填写本回合目标（如 `P1.2`）。
+2. `@dns_relay/AGENTS.md`、`@dns_relay/docs/design-technical.md`。
+3. 验收后更新 [docs/test-plan.md](docs/test-plan.md)；按 [git-convention.md](docs/git-convention.md) 提交。
+
+Skills（仓库 `.cursor/skills/`）：`product-manager`（PRD）、`network-engineer`（TDD）。

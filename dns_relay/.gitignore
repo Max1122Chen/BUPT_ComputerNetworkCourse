@@ -1,0 +1,28 @@
+# Build / IDE
+Debug/
+Release/
+x64/
+x86/
+*.obj
+*.o
+*.exe
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.suo
+*.user
+*.sln.docstates
+.vs/
+CMakeFiles/
+cmake-build-*/
+build/
+out/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Local / secrets
+*.local
+.env
