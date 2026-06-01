@@ -89,6 +89,73 @@ ctest --test-dir build
 nslookup www.baidu.com 127.0.0.1
 ```
 
+### CLI 帮助
+
+```powershell
+.\build\dnsrelay.exe --help
+```
+
+会显示参数说明、默认值与命令示例。常用命令：
+
+```powershell
+# 默认参数运行（上游=202.106.0.20，配置文件=dnsrelay.txt）
+.\build\dnsrelay.exe
+
+# 指定上游 + 一级日志
+.\build\dnsrelay.exe -d 220.181.111.1
+
+# 指定上游 + 二级日志 + 指定配置文件
+.\build\dnsrelay.exe -dd 220.181.111.232 .\dnsrelay.txt
+```
+
+### Release 2 运行步骤（建议）
+
+1. 编译：
+
+```powershell
+cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+2. 先跑单测（无需管理员）：
+
+```powershell
+.\build\dnsrelay_test.exe
+```
+
+3. 管理员启动服务：
+
+```powershell
+.\build\dnsrelay.exe -d 220.181.111.1
+```
+
+4. 另开终端发查询：
+
+```powershell
+nslookup test1 127.0.0.1
+nslookup test0 127.0.0.1
+nslookup www.baidu.com 127.0.0.1
+```
+
+5. 停止程序：在服务终端按 `Ctrl+C`。
+
+### 运行产物解读
+
+- `build/dnsrelay.exe`：主程序（二期能力：本地 A、NXDOMAIN、未命中中继）
+- `build/dnsrelay_test.exe`：单元测试程序
+- 启动日志示例：
+  - `dnsrelay: listening UDP/53, upstream ...`：启动成功并监听 53 端口
+  - `relay: started debug_level=1`：日志等级生效
+- 调试日志（`-d/-dd`）示例：
+  - `#N relay -> upstream id A->B client ... qname=...`：向上游转发一次查询
+  - `#N relay <- upstream id B->A client ...`：收到上游应答并回发客户端
+  - `relay: local A hit ... qname=...`：命中 `dnsrelay.txt`，本地合成 A 应答
+  - `relay: local NXDOMAIN block ... qname=...`：命中 `0.0.0.0` 拦截规则
+- 结果判定：
+  - `test1/test2` 返回配置 IP -> 本地命中正常
+  - `test0` 返回 `Non-existent domain` -> 拦截正常
+  - 表外域名可解析 -> 中继路径正常
+
 ### 运行注意
 
 - 监听 **UDP 53** 需 **管理员** 终端。

@@ -54,3 +54,6 @@ Makefile
 .idea/
 .vscode/
 
+# Lab submission
+Lab1/lab report/
+Lab1/lab report.zip

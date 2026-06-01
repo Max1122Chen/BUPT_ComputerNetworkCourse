@@ -132,6 +132,18 @@ static void test_config_parse_filename(void)
     TEST_ASSERT(cfg.load_table == 1);
 }
 
+static void test_config_parse_help_flag(void)
+{
+    dns_relay_config cfg;
+    char *argvv[] = {
+        "dnsrelay",
+        "--help"
+    };
+
+    TEST_ASSERT(config_parse(2, argvv, &cfg) == 0);
+    TEST_ASSERT(cfg.show_help == 1);
+}
+
 static void test_dns_table_load_and_lookup(void)
 {
     dns_table *t = dns_table_create(64);
@@ -278,6 +290,7 @@ int main(void)
     run_one(test_id_map_expire, "id_map_expire");
     run_one(test_config_defaults, "config_defaults");
     run_one(test_config_parse_filename, "config_parse_filename");
+    run_one(test_config_parse_help_flag, "config_parse_help");
     run_one(test_dns_table_load_and_lookup, "dns_table_load_lookup");
     run_one(test_dns_packet_build_a_response, "dns_packet_build_a");
     run_one(test_dns_packet_build_nxdomain, "dns_packet_build_nxdomain");

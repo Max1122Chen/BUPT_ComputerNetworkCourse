@@ -39,6 +39,7 @@ void config_set_defaults(dns_relay_config *cfg)
     strncpy(cfg->table_path, DNS_RELAY_DEFAULT_TABLE_PATH, sizeof(cfg->table_path) - 1);
     cfg->debug_level = 0;
     cfg->load_table = 1; /* Release 2+: load dnsrelay.txt by default */
+    cfg->show_help = 0;
 }
 
 int config_parse(int argc, char **argv, dns_relay_config *out)
@@ -59,6 +60,10 @@ int config_parse(int argc, char **argv, dns_relay_config *out)
         {
             out->debug_level = 1;
             seen_d = 1;
+        }
+        else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
+        {
+            out->show_help = 1;
         }
         else if (strcmp(argv[i], "-dd") == 0)
         {
@@ -83,4 +88,32 @@ int config_parse(int argc, char **argv, dns_relay_config *out)
 
     (void)seen_d;
     return 0;
+}
+
+void config_print_help(const char *prog_name)
+{
+    const char *name = prog_name != NULL ? prog_name : "dnsrelay";
+
+    fprintf(stderr,
+            "Usage: %s [-h|--help] [-d|-dd] [upstream-ip] [config-file]\n"
+            "\n"
+            "Options:\n"
+            "  -h, --help     Show this help message and exit\n"
+            "  -d             Enable level-1 debug logs\n"
+            "  -dd            Enable level-2 debug logs (more verbose)\n"
+            "\n"
+            "Arguments:\n"
+            "  upstream-ip    Upstream DNS IPv4 address (default: %s)\n"
+            "  config-file    Static DNS table file path (default: %s)\n"
+            "\n"
+            "Examples:\n"
+            "  %s\n"
+            "  %s -d 220.181.111.1\n"
+            "  %s -dd 220.181.111.232 dnsrelay.txt\n",
+            name,
+            DNS_RELAY_DEFAULT_UPSTREAM,
+            DNS_RELAY_DEFAULT_TABLE_PATH,
+            name,
+            name,
+            name);
 }

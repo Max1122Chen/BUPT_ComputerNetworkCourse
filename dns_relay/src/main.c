@@ -24,8 +24,14 @@ int main(int argc, char **argv)
 
     if (config_parse(argc, argv, &cfg) != 0)
     {
-        fprintf(stderr, "Usage: dnsrelay [-d | -dd] [upstream-ip] [config-file]\n");
+        config_print_help(argc > 0 ? argv[0] : "dnsrelay");
         return 1;
+    }
+
+    if (cfg.show_help)
+    {
+        config_print_help(argc > 0 ? argv[0] : "dnsrelay");
+        return 0;
     }
 
     debug_init(cfg.debug_level);
