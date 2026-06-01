@@ -5,6 +5,27 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#endif
+
+static int dnsrelay_parse_ipv4(const char *s)
+{
+    struct in_addr addr;
+
+    if (s == NULL)
+    {
+        return 0;
+    }
+    return inet_pton(AF_INET, s, &addr) == 1;
+}
+
 void config_set_defaults(dns_relay_config *cfg)
 {
     if (cfg == NULL)
@@ -17,7 +38,7 @@ void config_set_defaults(dns_relay_config *cfg)
     cfg->upstream_port = DNS_RELAY_PORT;
     strncpy(cfg->table_path, DNS_RELAY_DEFAULT_TABLE_PATH, sizeof(cfg->table_path) - 1);
     cfg->debug_level = 0;
-    cfg->load_table = 0; /* Release 1: no static table */
+    cfg->load_table = 1; /* Release 2+: load dnsrelay.txt by default */
 }
 
 int config_parse(int argc, char **argv, dns_relay_config *out)
@@ -49,16 +70,14 @@ int config_parse(int argc, char **argv, dns_relay_config *out)
             fprintf(stderr, "dnsrelay: unknown option: %s\n", argv[i]);
             return -1;
         }
-        else if (strchr(argv[i], '.') != NULL && strchr(argv[i], '/') == NULL &&
-                 strchr(argv[i], '\\') == NULL)
+        else if (dnsrelay_parse_ipv4(argv[i]))
         {
-            /* Heuristic: looks like an IPv4 address */
             strncpy(out->upstream_ip, argv[i], sizeof(out->upstream_ip) - 1);
         }
         else
         {
             strncpy(out->table_path, argv[i], sizeof(out->table_path) - 1);
-            /* Release 2 will set load_table when file is used */
+            /* Use this path for the static table (Release 2+). */
         }
     }
 

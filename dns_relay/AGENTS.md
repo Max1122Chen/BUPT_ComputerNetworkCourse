@@ -15,7 +15,7 @@
 | 技术设计 | [docs/design-technical.md](./docs/design-technical.md) TDD v2.0 |
 | 决策 | [decisions.md](./docs/decisions.md) ADR-000～009 |
 | 代码风格 | [coding-style.md](./docs/coding-style.md) — **注释仅英文** |
-| 当前焦点 | **Release 1**（透明中继，不读 `dnsrelay.txt`） |
+| 当前焦点 | **Release 2**（本地 A/NXDOMAIN + 拦截 + 表外中继） |
 
 Skills：`.cursor/skills/product-manager/`（PRD）、`.cursor/skills/network-engineer/`（TDD）。
 

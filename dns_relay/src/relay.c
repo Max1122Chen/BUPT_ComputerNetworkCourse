@@ -2,6 +2,7 @@
 
 #include "dns_packet.h"
 #include "dns_relay_constants.h"
+#include "dns_table.h"
 #include "debug.h"
 #include "id_map.h"
 #include "net_util.h"
@@ -79,7 +80,8 @@ static int relay_forward(dns_socket *sock, id_map *map, const uint8_t *buf, size
     return 0;
 }
 
-static void handle_client_query(dns_socket *sock, id_map *map, const uint8_t *buf, size_t len,
+static void handle_client_query(dns_socket *sock, id_map *map, dns_table *table,
+                                const uint8_t *buf, size_t len,
                                 const struct sockaddr_storage *from, socklen_t from_len,
                                 unsigned *seq)
 {
@@ -99,6 +101,48 @@ static void handle_client_query(dns_socket *sock, id_map *map, const uint8_t *bu
     }
 
     client_id = qinfo.id;
+    if (table != NULL && qinfo.qtype == DNS_TYPE_A && qinfo.qclass == DNS_CLASS_IN)
+    {
+        uint32_t ipv4_be = 0;
+        dns_table_result r = dns_table_lookup(table, qinfo.qname, &ipv4_be);
+        if (r == DNS_TABLE_HIT)
+        {
+            uint8_t out[DNS_UDP_BUF_SIZE];
+            size_t out_len = 0;
+            if (dns_packet_build_a_response(&qinfo, buf, len, ipv4_be, out, sizeof(out), &out_len) == 0)
+            {
+                if (dns_socket_sendto(sock, out, out_len, from, from_len) >= 0)
+                {
+                    if (debug_get_level() >= DBG_L1)
+                    {
+                        debug_log(DBG_L1, "relay: local A hit client_id=%u qname=%s",
+                                  (unsigned)client_id, qinfo.qname);
+                    }
+                    return;
+                }
+            }
+            /* If local build/send fails, fall back to relay. */
+        }
+        else if (r == DNS_TABLE_BLOCK)
+        {
+            uint8_t out[DNS_UDP_BUF_SIZE];
+            size_t out_len = 0;
+            if (dns_packet_build_nxdomain(&qinfo, buf, len, out, sizeof(out), &out_len) == 0)
+            {
+                if (dns_socket_sendto(sock, out, out_len, from, from_len) >= 0)
+                {
+                    if (debug_get_level() >= DBG_L1)
+                    {
+                        debug_log(DBG_L1, "relay: local NXDOMAIN block client_id=%u qname=%s",
+                                  (unsigned)client_id, qinfo.qname);
+                    }
+                    return;
+                }
+            }
+            /* If local build/send fails, fall back to relay. */
+        }
+    }
+
     (void)relay_forward(sock, map, buf, len, client_id, from, from_len, qinfo.qname, seq);
 }
 
@@ -147,6 +191,7 @@ int relay_run(const dns_relay_config *cfg)
 {
     dns_socket sock;
     id_map *map = NULL;
+    dns_table *table = NULL;
     uint8_t buf[DNS_UDP_BUF_SIZE];
     struct sockaddr_storage from;
     socklen_t from_len;
@@ -172,7 +217,26 @@ int relay_run(const dns_relay_config *cfg)
         return -1;
     }
 
-    fprintf(stderr, "dnsrelay: listening UDP/%d, upstream %s:%u (Release 1 relay)\n",
+    if (cfg->load_table)
+    {
+        table = dns_table_create(DNS_TABLE_DEFAULT_BUCKETS);
+        if (table == NULL)
+        {
+            id_map_destroy(map);
+            dns_socket_close(&sock);
+            return -1;
+        }
+
+        if (dns_table_load_file(table, cfg->table_path) < 0)
+        {
+            dns_table_destroy(table);
+            id_map_destroy(map);
+            dns_socket_close(&sock);
+            return -1;
+        }
+    }
+
+    fprintf(stderr, "dnsrelay: listening UDP/%d, upstream %s:%u (Release 2 relay)\n",
             DNS_RELAY_PORT, cfg->upstream_ip, (unsigned)cfg->upstream_port);
     debug_log(DBG_L1, "relay: started debug_level=%d", cfg->debug_level);
 
@@ -212,13 +276,14 @@ int relay_run(const dns_relay_config *cfg)
                 }
                 else
                 {
-                    handle_client_query(&sock, map, buf, (size_t)n, &from, from_len, &seq);
+                    handle_client_query(&sock, map, table, buf, (size_t)n, &from, from_len, &seq);
                 }
             }
         }
     }
 
     id_map_destroy(map);
+    dns_table_destroy(table);
     dns_socket_close(&sock);
     fprintf(stderr, "dnsrelay: stopped\n");
     return 0;

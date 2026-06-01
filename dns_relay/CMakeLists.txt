@@ -9,6 +9,7 @@ set(DNS_RELAY_COMMON_SOURCES
     src/config.c
     src/debug.c
     src/dns_packet.c
+    src/dns_table.c
     src/id_map.c
     src/net_util.c
     src/platform_win.c
@@ -51,4 +52,5 @@ if(DNS_RELAY_BUILD_TESTS)
     endif()
     enable_testing()
     add_test(NAME dnsrelay_unit COMMAND dnsrelay_test)
+    set_tests_properties(dnsrelay_unit PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()

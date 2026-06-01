@@ -23,4 +23,23 @@ void dns_packet_set_id(uint8_t *pkt, uint16_t id);
 /* Parse standard query; qname lowercased. Returns 0 on success. */
 int dns_packet_parse_query(const uint8_t *pkt, size_t len, dns_query_info *out);
 
+/* Build local A response:
+ * - Uses req header + Question from req_pkt
+ * - Sets flags: QR=1, AA=0
+ * - Sets RCODE=0 and Answer section to one A record with ipv4_be
+ * Returns 0 on success, <0 on error (out_cap insufficient). */
+int dns_packet_build_a_response(const dns_query_info *q, const uint8_t *req_pkt,
+                                 size_t req_len, uint32_t ipv4_be,
+                                 uint8_t *out, size_t out_cap,
+                                 size_t *out_len);
+
+/* Build local NXDOMAIN response (no Answer):
+ * - Uses req header + Question from req_pkt
+ * - Sets flags: QR=1, AA=0
+ * - Sets RCODE=3 and ANCOUNT=0
+ * Returns 0 on success, <0 on error. */
+int dns_packet_build_nxdomain(const dns_query_info *q, const uint8_t *req_pkt,
+                               size_t req_len, uint8_t *out,
+                               size_t out_cap, size_t *out_len);
+
 #endif /* DNS_RELAY_DNS_PACKET_H */

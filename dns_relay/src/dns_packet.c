@@ -164,3 +164,150 @@ int dns_packet_parse_query(const uint8_t *pkt, size_t len, dns_query_info *out)
     qname_to_lower(out->qname);
     return 0;
 }
+
+static int dns_packet_copy_header_and_question(const dns_query_info *q,
+                                                 const uint8_t *req_pkt,
+                                                 size_t req_len,
+                                                 uint16_t an_count,
+                                                 uint8_t rcode,
+                                                 uint8_t *out,
+                                                 size_t out_cap,
+                                                 size_t *out_len)
+{
+    uint16_t flags;
+    uint16_t qdcount;
+    size_t question_len;
+    size_t total_len;
+
+    if (q == NULL || req_pkt == NULL || out == NULL || out_len == NULL)
+    {
+        return -1;
+    }
+    if (req_len < 12)
+    {
+        return -1;
+    }
+    if (q->question_end_offset == 0)
+    {
+        return -1;
+    }
+
+    question_len = q->question_end_offset;
+    if (12 + question_len > req_len)
+    {
+        return -1;
+    }
+
+    total_len = 12 + question_len;
+    if (total_len > out_cap)
+    {
+        return -1;
+    }
+
+    /* Copy header and Question section verbatim. */
+    memcpy(out, req_pkt, 12);
+    memcpy(out + 12, req_pkt + 12, question_len);
+
+    flags = (uint16_t)((req_pkt[2] << 8) | req_pkt[3]);
+    /* QR=1 (response), AA=0, TC=0. Keep RD/RA fields as-is. */
+    flags |= 0x8000;
+    flags &= ~0x0400; /* AA */
+    flags &= ~0x0200; /* TC */
+    flags = (uint16_t)((flags & 0xFFF0u) | (rcode & 0x0Fu));
+
+    qdcount = (uint16_t)((req_pkt[4] << 8) | req_pkt[5]);
+
+    /* Header counts. */
+    out[2] = (uint8_t)((flags >> 8) & 0xFFu);
+    out[3] = (uint8_t)(flags & 0xFFu);
+    out[4] = (uint8_t)((qdcount >> 8) & 0xFFu);
+    out[5] = (uint8_t)(qdcount & 0xFFu);
+
+    out[6] = (uint8_t)((an_count >> 8) & 0xFFu);
+    out[7] = (uint8_t)(an_count & 0xFFu);
+
+    /* NSCOUNT=0, ARCOUNT=0. */
+    out[8] = 0;
+    out[9] = 0;
+    out[10] = 0;
+    out[11] = 0;
+
+    *out_len = total_len;
+    return 0;
+}
+
+int dns_packet_build_a_response(const dns_query_info *q, const uint8_t *req_pkt,
+                                 size_t req_len, uint32_t ipv4_be,
+                                 uint8_t *out, size_t out_cap, size_t *out_len)
+{
+    size_t question_len;
+    size_t ans_off;
+    size_t total_len;
+    uint32_t ttl_be;
+
+    if (q == NULL || req_pkt == NULL || out == NULL || out_len == NULL)
+    {
+        return -1;
+    }
+
+    question_len = q->question_end_offset;
+    ans_off = 12 + question_len;
+
+    /* A record (NAME ptr + TYPE + CLASS + TTL + RDLENGTH + RDATA). */
+    total_len = ans_off + 16;
+    if (total_len > out_cap)
+    {
+        return -1;
+    }
+
+    if (dns_packet_copy_header_and_question(q, req_pkt, req_len, 1, 0, out, out_cap, out_len) != 0)
+    {
+        return -1;
+    }
+
+    /* TTL and RDATA are written in network byte order. */
+    ttl_be = (uint32_t)(DNS_LOCAL_TTL & 0xFFFFFFFFu);
+
+    /* NAME: pointer to QNAME at offset 12 (0xC00C). */
+    out[ans_off + 0] = 0xC0;
+    out[ans_off + 1] = 0x0C;
+
+    /* TYPE=A (1). */
+    out[ans_off + 2] = 0;
+    out[ans_off + 3] = 1;
+
+    /* CLASS=IN (1). */
+    out[ans_off + 4] = 0;
+    out[ans_off + 5] = 1;
+
+    /* TTL. */
+    out[ans_off + 6] = (uint8_t)((ttl_be >> 24) & 0xFFu);
+    out[ans_off + 7] = (uint8_t)((ttl_be >> 16) & 0xFFu);
+    out[ans_off + 8] = (uint8_t)((ttl_be >> 8) & 0xFFu);
+    out[ans_off + 9] = (uint8_t)(ttl_be & 0xFFu);
+
+    /* RDLENGTH=4. */
+    out[ans_off + 10] = 0;
+    out[ans_off + 11] = 4;
+
+    /* RDATA=IPv4 (4 bytes). */
+    /* ipv4_be is in network byte order stored in in_addr.s_addr.
+     * On little-endian hosts, using shifts would swap byte order.
+     * Copy the raw 4 bytes to the wire. */
+    memcpy(out + ans_off + 12, &ipv4_be, 4);
+
+    *out_len = total_len;
+    return 0;
+}
+
+int dns_packet_build_nxdomain(const dns_query_info *q, const uint8_t *req_pkt,
+                               size_t req_len, uint8_t *out, size_t out_cap, size_t *out_len)
+{
+    if (q == NULL || req_pkt == NULL || out == NULL || out_len == NULL)
+    {
+        return -1;
+    }
+
+    /* ANCOUNT=0, RCODE=3 for NXDOMAIN. */
+    return dns_packet_copy_header_and_question(q, req_pkt, req_len, 0, 3, out, out_cap, out_len);
+}

@@ -6,7 +6,8 @@
 |------|------|
 | **[docs/design.md](docs/design.md)** | 产品需求（PRD v2.0）— 做什么、怎么验收 |
 | **[docs/design-technical.md](docs/design-technical.md)** | 技术设计（TDD v2.0）— 协议、API、数据结构 |
-| **[docs/testing-release1.md](docs/testing-release1.md)** | **Release 1 测试流程（队友必读）** |
+| **[docs/testing-release1.md](docs/testing-release1.md)** | **Release 1 测试流程（透明中继）** |
+| **[docs/testing-release2.md](docs/testing-release2.md)** | **Release 2 测试流程（本地 A/NXDOMAIN + 中继）** |
 | **[docs/contributing.md](docs/contributing.md)** | **新成员上手与组内协作流程** |
 | **[docs/git-convention.md](docs/git-convention.md)** | **Git 提交规范（Conventional Commits）** |
 | **[AGENTS.md](AGENTS.md)** | Cursor AI 协作入口 |
@@ -78,9 +79,9 @@ cmake --build build
 ctest --test-dir build
 ```
 
-### 运行与验收（Release 1）
+### 运行与验收（Release 2）
 
-完整步骤（单元测试 + 管理员中继 + 对比上游）：**[docs/testing-release1.md](docs/testing-release1.md)**。
+完整步骤（单元测试 + 管理员中继 + 本地应答/拦截验证）：**[docs/testing-release2.md](docs/testing-release2.md)**。
 
 ```powershell
 # 管理员 PowerShell

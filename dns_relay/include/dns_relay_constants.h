@@ -12,6 +12,10 @@
 #define DNS_ID_MAP_BUCKET_COUNT    256
 #define RELAY_SELECT_MAX_MS        500
 
+#define DNS_LOCAL_TTL              60
+
+#define DNS_TABLE_DEFAULT_BUCKETS 2048
+
 #define DNS_QNAME_MAX_LEN          256
 #define DNS_NAME_JUMP_MAX          16
 
