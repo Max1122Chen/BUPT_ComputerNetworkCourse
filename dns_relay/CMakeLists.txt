@@ -8,6 +8,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(DNS_RELAY_COMMON_SOURCES
     src/config.c
     src/debug.c
+    src/dns_cache.c
     src/dns_packet.c
     src/dns_table.c
     src/id_map.c
