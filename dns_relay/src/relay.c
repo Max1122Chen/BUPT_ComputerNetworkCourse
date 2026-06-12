@@ -1,5 +1,6 @@
 #include "relay.h"
 
+#include "dns_cache.h"
 #include "dns_packet.h"
 #include "dns_relay_constants.h"
 #include "dns_table.h"
@@ -28,7 +29,8 @@ void relay_request_stop(void)
 }
 
 static int relay_forward(dns_socket *sock, id_map *map, const uint8_t *buf, size_t len,
-                         uint16_t client_id, const struct sockaddr_storage *client_addr,
+                         uint16_t client_id, uint16_t qtype,
+                         const struct sockaddr_storage *client_addr,
                          socklen_t client_len, const char *qname, unsigned *seq)
 {
     uint8_t out[DNS_UDP_BUF_SIZE];
@@ -66,9 +68,9 @@ static int relay_forward(dns_socket *sock, id_map *map, const uint8_t *buf, size
     {
         (*seq)++;
         net_util_format_endpoint(client_addr, client_len, ep, sizeof(ep));
-        debug_log(DBG_L1, "#%u relay -> upstream id %u->%u client %s qname=%s", *seq,
-                  (unsigned)client_id, (unsigned)upstream_id, ep,
-                  qname != NULL ? qname : "?");
+        debug_log(DBG_L1, "#%u relay -> upstream id %u->%u client %s qname=%s qtype=%u",
+                  *seq, (unsigned)client_id, (unsigned)upstream_id, ep,
+                  qname != NULL ? qname : "?", (unsigned)qtype);
     }
 
     if (debug_get_level() >= DBG_L2)
@@ -81,6 +83,7 @@ static int relay_forward(dns_socket *sock, id_map *map, const uint8_t *buf, size
 }
 
 static void handle_client_query(dns_socket *sock, id_map *map, dns_table *table,
+                                dns_cache *cache,
                                 const uint8_t *buf, size_t len,
                                 const struct sockaddr_storage *from, socklen_t from_len,
                                 unsigned *seq)
@@ -141,13 +144,47 @@ static void handle_client_query(dns_socket *sock, id_map *map, dns_table *table,
             }
             /* If local build/send fails, fall back to relay. */
         }
+
+        if (cache != NULL)
+        {
+            uint32_t ipv4_cached = 0;
+            uint64_t now_ms = platform_monotonic_ms();
+            dns_cache_lookup_result cr =
+                dns_cache_lookup(cache, qinfo.qname, &ipv4_cached, now_ms);
+            if (cr == DNS_CACHE_HIT)
+            {
+                uint8_t out[DNS_UDP_BUF_SIZE];
+                size_t out_len = 0;
+                if (dns_packet_build_a_response(&qinfo, buf, len, ipv4_cached, out, sizeof(out),
+                                                &out_len) == 0)
+                {
+                    if (dns_socket_sendto(sock, out, out_len, from, from_len) >= 0)
+                    {
+                        if (debug_get_level() >= DBG_L1)
+                        {
+                            debug_log(DBG_L1, "relay: cache A hit client_id=%u qname=%s",
+                                      (unsigned)client_id, qinfo.qname);
+                        }
+                        return;
+                    }
+                }
+                /* If local build/send fails, fall back to relay. */
+            }
+        }
     }
 
-    (void)relay_forward(sock, map, buf, len, client_id, from, from_len, qinfo.qname, seq);
+    if (cache != NULL && qinfo.qtype != DNS_TYPE_A && debug_get_level() >= DBG_L2)
+    {
+        debug_log(DBG_L2, "relay: skip cache for non-A query qname=%s qtype=%u",
+                  qinfo.qname, (unsigned)qinfo.qtype);
+    }
+
+    (void)relay_forward(sock, map, buf, len, client_id, qinfo.qtype, from, from_len,
+                        qinfo.qname, seq);
 }
 
-static void handle_upstream_response(dns_socket *sock, id_map *map, uint8_t *buf, size_t len,
-                                     unsigned *seq)
+static void handle_upstream_response(dns_socket *sock, id_map *map, dns_cache *cache,
+                                     uint8_t *buf, size_t len, unsigned *seq)
 {
     uint16_t upstream_id;
     id_map_entry *entry;
@@ -168,6 +205,21 @@ static void handle_upstream_response(dns_socket *sock, id_map *map, uint8_t *buf
     }
 
     dns_packet_set_id(buf, entry->client_id);
+
+    if (cache != NULL && entry->qname[0] != '\0')
+    {
+        uint32_t ipv4_be = 0;
+        uint32_t ttl_sec = 0;
+        if (dns_packet_extract_a_for_qname(buf, len, entry->qname, &ipv4_be, &ttl_sec) == 0)
+        {
+            (void)dns_cache_insert(cache, entry->qname, ipv4_be, ttl_sec,
+                                   platform_monotonic_ms());
+        }
+        else if (debug_get_level() >= DBG_L2)
+        {
+            debug_log(DBG_L2, "relay: skip cache insert, no A for qname=%s", entry->qname);
+        }
+    }
 
     if (dns_socket_sendto(sock, buf, len, &entry->client_addr, entry->client_len) < 0)
     {
@@ -192,6 +244,7 @@ int relay_run(const dns_relay_config *cfg)
     dns_socket sock;
     id_map *map = NULL;
     dns_table *table = NULL;
+    dns_cache *cache = NULL;
     uint8_t buf[DNS_UDP_BUF_SIZE];
     struct sockaddr_storage from;
     socklen_t from_len;
@@ -236,7 +289,16 @@ int relay_run(const dns_relay_config *cfg)
         }
     }
 
-    fprintf(stderr, "dnsrelay: listening UDP/%d, upstream %s:%u (Release 2 relay)\n",
+    cache = dns_cache_create(DNS_CACHE_DEFAULT_CAPACITY);
+    if (cache == NULL)
+    {
+        dns_table_destroy(table);
+        id_map_destroy(map);
+        dns_socket_close(&sock);
+        return -1;
+    }
+
+    fprintf(stderr, "dnsrelay: listening UDP/%d, upstream %s:%u (Release 3 relay)\n",
             DNS_RELAY_PORT, cfg->upstream_ip, (unsigned)cfg->upstream_port);
     debug_log(DBG_L1, "relay: started debug_level=%d", cfg->debug_level);
 
@@ -272,11 +334,12 @@ int relay_run(const dns_relay_config *cfg)
             {
                 if (dns_socket_is_upstream_source(&sock, &from, from_len))
                 {
-                    handle_upstream_response(&sock, map, buf, (size_t)n, &seq);
+                    handle_upstream_response(&sock, map, cache, buf, (size_t)n, &seq);
                 }
                 else
                 {
-                    handle_client_query(&sock, map, table, buf, (size_t)n, &from, from_len, &seq);
+                    handle_client_query(&sock, map, table, cache, buf, (size_t)n, &from, from_len,
+                                        &seq);
                 }
             }
         }
@@ -284,6 +347,7 @@ int relay_run(const dns_relay_config *cfg)
 
     id_map_destroy(map);
     dns_table_destroy(table);
+    dns_cache_destroy(cache);
     dns_socket_close(&sock);
     fprintf(stderr, "dnsrelay: stopped\n");
     return 0;

@@ -4,6 +4,7 @@
  */
 
 #include "config.h"
+#include "dns_cache.h"
 #include "dns_packet.h"
 #include "dns_table.h"
 #include "id_map.h"
@@ -254,6 +255,120 @@ static void test_dns_packet_build_nxdomain(void)
     TEST_ASSERT(((uint16_t)out[6] << 8 | out[7]) == 0);
 }
 
+static void test_dns_cache_insert_lookup(void)
+{
+    dns_cache *c = dns_cache_create(4);
+    uint32_t ipv4_be = 0;
+    uint64_t now = platform_monotonic_ms();
+    struct in_addr addr;
+
+    TEST_ASSERT(c != NULL);
+    inet_pton(AF_INET, "1.2.3.4", &addr);
+    TEST_ASSERT(dns_cache_insert(c, "cache.example.com", addr.s_addr, 300, now) == 0);
+    TEST_ASSERT(dns_cache_size(c) == 1);
+    TEST_ASSERT(dns_cache_lookup(c, "cache.example.com", &ipv4_be, now) == DNS_CACHE_HIT);
+    TEST_ASSERT(ipv4_be == addr.s_addr);
+    TEST_ASSERT(dns_cache_lookup(c, "CACHE.EXAMPLE.COM", &ipv4_be, now) == DNS_CACHE_HIT);
+    dns_cache_destroy(c);
+}
+
+static void test_dns_cache_lru_eviction(void)
+{
+    dns_cache *c = dns_cache_create(2);
+    uint64_t now = platform_monotonic_ms();
+    struct in_addr a1;
+    struct in_addr a2;
+    struct in_addr a3;
+    uint32_t ipv4_be = 0;
+
+    TEST_ASSERT(c != NULL);
+    inet_pton(AF_INET, "1.1.1.1", &a1);
+    inet_pton(AF_INET, "2.2.2.2", &a2);
+    inet_pton(AF_INET, "3.3.3.3", &a3);
+
+    TEST_ASSERT(dns_cache_insert(c, "one.example", a1.s_addr, 60, now) == 0);
+    TEST_ASSERT(dns_cache_insert(c, "two.example", a2.s_addr, 60, now) == 0);
+    TEST_ASSERT(dns_cache_size(c) == 2);
+
+    /* Touch one.example so two.example is LRU tail before inserting three.example. */
+    TEST_ASSERT(dns_cache_lookup(c, "one.example", &ipv4_be, now) == DNS_CACHE_HIT);
+
+    TEST_ASSERT(dns_cache_insert(c, "three.example", a3.s_addr, 60, now) == 0);
+    TEST_ASSERT(dns_cache_size(c) == 2);
+    TEST_ASSERT(dns_cache_lookup(c, "two.example", &ipv4_be, now) == DNS_CACHE_MISS);
+    TEST_ASSERT(dns_cache_lookup(c, "one.example", &ipv4_be, now) == DNS_CACHE_HIT);
+    TEST_ASSERT(dns_cache_lookup(c, "three.example", &ipv4_be, now) == DNS_CACHE_HIT);
+    dns_cache_destroy(c);
+}
+
+static void test_dns_cache_expire(void)
+{
+    dns_cache *c = dns_cache_create(4);
+    uint32_t ipv4_be = 0;
+    uint64_t now = platform_monotonic_ms();
+    struct in_addr addr;
+
+    TEST_ASSERT(c != NULL);
+    inet_pton(AF_INET, "9.9.9.9", &addr);
+    TEST_ASSERT(dns_cache_insert(c, "expire.example", addr.s_addr, 1, now) == 0);
+    TEST_ASSERT(dns_cache_lookup(c, "expire.example", &ipv4_be, now + 2000) == DNS_CACHE_EXPIRED);
+    TEST_ASSERT(dns_cache_size(c) == 0);
+    dns_cache_destroy(c);
+}
+
+static void test_dns_packet_extract_a_for_qname(void)
+{
+    /* Response: www.example.com A 93.184.216.34 TTL=300 */
+    uint8_t resp[] = {
+        0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+        0x03, 'w', 'w', 'w', 0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
+        0x00, 0x01, 0x00, 0x01,
+        0xC0, 0x0C,
+        0x00, 0x01, 0x00, 0x01,
+        0x00, 0x00, 0x01, 0x2C,
+        0x00, 0x04,
+        93, 184, 216, 34
+    };
+    uint32_t ipv4_be = 0;
+    uint32_t ttl = 0;
+    struct in_addr addr;
+
+    TEST_ASSERT(dns_packet_extract_a_for_qname(resp, sizeof(resp), "www.example.com", &ipv4_be,
+                                               &ttl) == 0);
+    inet_pton(AF_INET, "93.184.216.34", &addr);
+    TEST_ASSERT(ipv4_be == addr.s_addr);
+    TEST_ASSERT(ttl == 300);
+}
+
+static void test_dns_packet_extract_a_cname_chain(void)
+{
+    /* CNAME www.baidu.com -> a.shifen.com, then A a.shifen.com 39.156.66.10 */
+    uint8_t resp[] = {
+        0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+        0x03, 'w', 'w', 'w', 0x05, 'b', 'a', 'i', 'd', 'u', 0x03, 'c', 'o', 'm', 0x00,
+        0x00, 0x01, 0x00, 0x01,
+        0xC0, 0x0C,
+        0x00, 0x05, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x78,
+        0x00, 0x0E,
+        0x01, 'a', 0x06, 's', 'h', 'i', 'f', 'e', 'n', 0x03, 'c', 'o', 'm', 0x00,
+        0xC0, 0x2B,
+        0x00, 0x01, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x3C,
+        0x00, 0x04,
+        39, 156, 66, 10
+    };
+    uint32_t ipv4_be = 0;
+    uint32_t ttl = 0;
+    struct in_addr addr;
+
+    TEST_ASSERT(dns_packet_extract_a_for_qname(resp, sizeof(resp), "www.baidu.com", &ipv4_be,
+                                               &ttl) == 0);
+    inet_pton(AF_INET, "39.156.66.10", &addr);
+    TEST_ASSERT(ipv4_be == addr.s_addr);
+    TEST_ASSERT(ttl == 60);
+}
+
 static void test_net_util_addr_equals(void)
 {
     struct sockaddr_storage a, b;
@@ -294,6 +409,11 @@ int main(void)
     run_one(test_dns_table_load_and_lookup, "dns_table_load_lookup");
     run_one(test_dns_packet_build_a_response, "dns_packet_build_a");
     run_one(test_dns_packet_build_nxdomain, "dns_packet_build_nxdomain");
+    run_one(test_dns_cache_insert_lookup, "dns_cache_insert_lookup");
+    run_one(test_dns_cache_lru_eviction, "dns_cache_lru_eviction");
+    run_one(test_dns_cache_expire, "dns_cache_expire");
+    run_one(test_dns_packet_extract_a_for_qname, "dns_packet_extract_a");
+    run_one(test_dns_packet_extract_a_cname_chain, "dns_packet_extract_a_cname");
     run_one(test_net_util_addr_equals, "net_util_addr_equals");
 
     platform_cleanup();

@@ -311,3 +311,253 @@ int dns_packet_build_nxdomain(const dns_query_info *q, const uint8_t *req_pkt,
     /* ANCOUNT=0, RCODE=3 for NXDOMAIN. */
     return dns_packet_copy_header_and_question(q, req_pkt, req_len, 0, 3, out, out_cap, out_len);
 }
+
+static int skip_name_at(const uint8_t *pkt, size_t len, size_t offset, size_t *consumed)
+{
+    size_t pos = offset;
+    int jumps = 0;
+    size_t jump_return = 0;
+    int jumped = 0;
+
+    if (pkt == NULL || consumed == NULL || offset >= len)
+    {
+        return -1;
+    }
+
+    while (pos < len)
+    {
+        uint8_t label_len = pkt[pos];
+
+        if ((label_len & 0xc0) == 0xc0)
+        {
+            if (pos + 1 >= len)
+            {
+                return -1;
+            }
+            if (jumps >= DNS_NAME_JUMP_MAX)
+            {
+                return -1;
+            }
+
+            if (!jumped)
+            {
+                jump_return = pos + 2;
+                jumped = 1;
+            }
+
+            pos = (size_t)(((label_len & 0x3f) << 8) | pkt[pos + 1]);
+            if (pos >= len)
+            {
+                return -1;
+            }
+            jumps++;
+            continue;
+        }
+
+        if (label_len == 0)
+        {
+            if (!jumped)
+            {
+                *consumed = pos + 1 - offset;
+            }
+            else
+            {
+                *consumed = jump_return - offset;
+            }
+            return 0;
+        }
+
+        if (label_len > 63 || pos + 1 + label_len > len)
+        {
+            return -1;
+        }
+
+        pos += 1 + label_len;
+    }
+
+    return -1;
+}
+
+static size_t skip_questions(const uint8_t *pkt, size_t len, uint16_t qdcount)
+{
+    size_t offset = 12;
+    uint16_t i;
+
+    for (i = 0; i < qdcount; ++i)
+    {
+        size_t name_len;
+
+        if (skip_name_at(pkt, len, offset, &name_len) != 0)
+        {
+            return 0;
+        }
+        offset += name_len;
+        if (offset + 4 > len)
+        {
+            return 0;
+        }
+        offset += 4;
+    }
+
+    return offset;
+}
+
+static int scan_answers_for_a(const uint8_t *pkt, size_t len, size_t ans_offset,
+                              uint16_t ancount, const char *want, const char *cname_target,
+                              uint32_t *ipv4_out, uint32_t *ttl_out)
+{
+    size_t offset = ans_offset;
+    uint16_t i;
+
+    for (i = 0; i < ancount; ++i)
+    {
+        size_t name_consumed;
+        int jumps = 0;
+        char rname[256];
+        uint16_t rtype;
+        uint16_t rclass;
+        uint32_t ttl;
+        uint16_t rdlen;
+
+        if (decode_name(pkt, len, offset, rname, sizeof(rname), &name_consumed, &jumps) != 0)
+        {
+            return -1;
+        }
+
+        offset += name_consumed;
+        if (offset + 10 > len)
+        {
+            return -1;
+        }
+
+        rtype = (uint16_t)((pkt[offset] << 8) | pkt[offset + 1]);
+        rclass = (uint16_t)((pkt[offset + 2] << 8) | pkt[offset + 3]);
+        ttl = (uint32_t)((pkt[offset + 4] << 24) | (pkt[offset + 5] << 16) |
+                         (pkt[offset + 6] << 8) | pkt[offset + 7]);
+        rdlen = (uint16_t)((pkt[offset + 8] << 8) | pkt[offset + 9]);
+        offset += 10;
+
+        if (offset + rdlen > len)
+        {
+            return -1;
+        }
+
+        if (rtype == DNS_TYPE_A && rclass == DNS_CLASS_IN && rdlen == 4)
+        {
+            qname_to_lower(rname);
+            if (strcmp(rname, want) == 0 ||
+                (cname_target[0] != '\0' && strcmp(rname, cname_target) == 0))
+            {
+                memcpy(ipv4_out, pkt + offset, 4);
+                *ttl_out = ttl;
+                return 0;
+            }
+        }
+
+        offset += rdlen;
+    }
+
+    return -1;
+}
+
+int dns_packet_extract_a_for_qname(const uint8_t *pkt, size_t len, const char *qname,
+                                   uint32_t *ipv4_out, uint32_t *ttl_out)
+{
+    uint16_t qdcount;
+    uint16_t ancount;
+    size_t ans_offset;
+    uint16_t i;
+    char want[256];
+    char cname_target[256];
+    size_t offset;
+
+    if (pkt == NULL || qname == NULL || ipv4_out == NULL || ttl_out == NULL || len < 12)
+    {
+        return -1;
+    }
+
+    if ((pkt[2] & 0x80) == 0)
+    {
+        return -1;
+    }
+
+    if ((pkt[3] & 0x0f) != 0)
+    {
+        return -1;
+    }
+
+    qdcount = (uint16_t)((pkt[4] << 8) | pkt[5]);
+    ancount = (uint16_t)((pkt[6] << 8) | pkt[7]);
+    if (qdcount < 1 || ancount < 1)
+    {
+        return -1;
+    }
+
+    if (strlen(qname) >= sizeof(want))
+    {
+        return -1;
+    }
+
+    strcpy(want, qname);
+    qname_to_lower(want);
+    cname_target[0] = '\0';
+
+    ans_offset = skip_questions(pkt, len, qdcount);
+    if (ans_offset == 0)
+    {
+        return -1;
+    }
+
+    /* Pass 1: CNAME in Answer (common for www.baidu.com -> *.shifen.com). */
+    offset = ans_offset;
+    for (i = 0; i < ancount; ++i)
+    {
+        size_t name_consumed;
+        int jumps = 0;
+        char rname[256];
+        uint16_t rtype;
+        uint16_t rclass;
+        uint16_t rdlen;
+        size_t rd_consumed;
+
+        if (decode_name(pkt, len, offset, rname, sizeof(rname), &name_consumed, &jumps) != 0)
+        {
+            return -1;
+        }
+
+        offset += name_consumed;
+        if (offset + 10 > len)
+        {
+            return -1;
+        }
+
+        rtype = (uint16_t)((pkt[offset] << 8) | pkt[offset + 1]);
+        rclass = (uint16_t)((pkt[offset + 2] << 8) | pkt[offset + 3]);
+        rdlen = (uint16_t)((pkt[offset + 8] << 8) | pkt[offset + 9]);
+        offset += 10;
+
+        if (offset + rdlen > len)
+        {
+            return -1;
+        }
+
+        if (rtype == DNS_TYPE_CNAME && rclass == DNS_CLASS_IN)
+        {
+            qname_to_lower(rname);
+            if (strcmp(rname, want) == 0)
+            {
+                jumps = 0;
+                if (decode_name(pkt, len, offset, cname_target, sizeof(cname_target), &rd_consumed,
+                                &jumps) == 0)
+                {
+                    qname_to_lower(cname_target);
+                }
+            }
+        }
+
+        offset += rdlen;
+    }
+
+    /* Pass 2: direct A for qname, or A for CNAME target. */
+    return scan_answers_for_a(pkt, len, ans_offset, ancount, want, cname_target, ipv4_out, ttl_out);
+}

@@ -4,8 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DNS_TYPE_A   1
-#define DNS_CLASS_IN 1
+#define DNS_TYPE_A     1
+#define DNS_TYPE_CNAME 5
+#define DNS_CLASS_IN   1
 
 typedef struct dns_query_info
 {
@@ -41,5 +42,10 @@ int dns_packet_build_a_response(const dns_query_info *q, const uint8_t *req_pkt,
 int dns_packet_build_nxdomain(const dns_query_info *q, const uint8_t *req_pkt,
                                size_t req_len, uint8_t *out,
                                size_t out_cap, size_t *out_len);
+
+/* From DNS response: first A/IN answer matching qname (lowercase compare).
+ * ipv4_out is network byte order; ttl_out is seconds. Returns 0 on success. */
+int dns_packet_extract_a_for_qname(const uint8_t *pkt, size_t len, const char *qname,
+                                   uint32_t *ipv4_out, uint32_t *ttl_out);
 
 #endif /* DNS_RELAY_DNS_PACKET_H */
